@@ -1,0 +1,8 @@
+torch
+torchaudio
+numpy
+requests
+scikit-learn
+tqdm
+einops
+paramiko
