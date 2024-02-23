@@ -163,3 +163,4 @@ cython_debug/
 *.flac
 *.mp3
 *.wav
+*.png

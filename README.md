@@ -23,7 +23,7 @@ python train.py
 
 ## Distributed Experiment
 
-On each server:
+Set up each server:
 
 ```bash
 git clone https://github.com/catid/never_forget.git
@@ -33,14 +33,25 @@ conda create -n nf python=3.10 -y && conda activate nf
 
 pip install -r requirements.txt
 
-# Verify that training works
-python simple_train.py
-
 python command_server.py
 ```
 
-## Combine Results
+On client side, edit the `hosts.txt` file to point to the servers you want to use.
 
 ```bash
+git clone https://github.com/catid/never_forget.git
+cd never_forget
+
+conda create -n nf python=3.10 -y && conda activate nf
+
+pip install -r requirements.txt
+
+# Launch job
+python command_client_grid.py
+
+# Download results and combine them
 python combine_results.py
+
+# Graph results, producing heatmaps as .png files
+python graph_results.py
 ```

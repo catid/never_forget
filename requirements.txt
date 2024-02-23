@@ -5,4 +5,8 @@ requests
 scikit-learn
 tqdm
 einops
+
 paramiko
+pandas
+seaborn
+matplotlib
