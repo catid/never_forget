@@ -4,7 +4,7 @@ Implementation of "Overcoming Catastrophic Forgetting in Neural Networks" (Kirkp
 
 This is training an S4 audio prediction model with 23,000 parameters using an audio dataset split into 3 parts.  Sets of songs on the playlist are separate parts.  The goal is to modify a normal model so that parts 0,1 (trained earlier) have lower loss after later training part 2 by introducing a weight regularization term based on the paper.  So, can we still remember the songs we heard earlier?
 
-The scripts perform a hyperparameter sweep and results are presented as heatmaps below to draw conclusions about the efficacy of the proposed regularization term for very small models.  For much larger or more complex models, the proposed regularization term be more or less effective.  Scroll down for the results for small models.
+The scripts perform a hyperparameter sweep and results are presented as heatmaps below to draw conclusions about the efficacy of the proposed regularization term for very small models.  For much larger or more complex models, the proposed regularization term may be more or less effective.  Scroll down for the results for small models.
 
 ## Setup
 
