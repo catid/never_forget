@@ -1,6 +1,10 @@
-# never_forget
+# Never Forget
 
 Implementation of "Overcoming Catastrophic Forgetting in Neural Networks" (Kirkpatrick et al, 2017) https://arxiv.org/pdf/1612.00796.pdf
+
+This is training an S4 audio prediction model with 23,000 parameters using an audio dataset split into 3 parts.  Sets of songs on the playlist are separate parts.  The goal is to modify a normal model so that parts 0,1 (trained earlier) have lower loss after later training part 2 by introducing a weight regularization term based on the paper.  So, can we still remember the songs we heard earlier?
+
+The scripts perform a hyperparameter sweep and results are presented as heatmaps below to draw conclusions about the efficacy of the proposed regularization term for very small models.  For much larger or more complex models, the proposed regularization term be more or less effective.  Scroll down for the results for small models.
 
 ## Setup
 
@@ -71,7 +75,7 @@ The `alpha` parameter is multiplied by the FIM loss, so 0 means no regularizatio
 
 The `beta` parameter is more of a detail.  It modifies the EWMA decay rate of the FIM regularization term for each weight element.  It measures how much it remembers the previous training example FIM terms when moving from part 1 to part 2 of the dataset.  So `beta` should choose a trade-off between part 0 and part 1 loss at the end.
 
-We present hyperparameter sweep results as heatmaps below, showing the impact of different values of `alpha` and `beta` on the loss of all parts, and each part individually, as well as the validation loss:
+We present hyperparameter sweep results as heatmaps below, showing the impact of different values of `alpha` and `beta` on the loss of all parts, and each part individually, as well as the validation loss.  Each number in the heatmap is one experiment run.
 
 ## Dataset Split 0
 
@@ -109,6 +113,12 @@ Here's the validation set loss (better is smaller), which measures how well the 
 
 ![Validation Set Loss](val_loss_full_heatmap.png)
 
-## Conclusion
+## Results for Small Models
 
-...
+Generally the results are worse than baseline.  The only positive result is that dataset split 1 (the middle one) has lower loss when the approach is applied at alpha=1.3 and beta=0.3, but overall the regularized network has worse generalization performance than the baseline in all other areas.  The fact that there is some measurable improvement at all does hint at the approach being more interesting at larger sizes.
+
+As a result it does not seem to be a good idea to use this regularization term in practice for small models on smaller datasets, which are mainly learning general features in common across the entire dataset.  Again the dataset has only 2053 audio clips in its training tensor (split 3 ways) and the model has only 23,000 parameters.
+
+The authors of the paper were focused on reinforcement learning, which has very different requirements.  Not sure how large the model is but I'm sure it's at least 1M parameters since it's a DQN architecture.  They trained 50,000 trajectories (25x more data).  So the model that is trained here is significantly smaller and in a different regime entirely.
+
+Future work: Train a larger multi-layer Mamba model with a larger dataset using DeepSpeed to speed up training.
