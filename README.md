@@ -111,7 +111,7 @@ To see how it performs in aggregate, here's the full training set loss (better i
 
 Here's the validation set loss (better is smaller), which measures how well the model generalizes to unseen data:
 
-![Validation Set Loss](val_loss_full_heatmap.png)
+![Validation Set Loss](val_loss_heatmap.png)
 
 ## Results for Small Models
 
