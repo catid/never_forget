@@ -346,23 +346,25 @@ def main(args):
 
     train(model_reg, train_loader, val_loader, args, regger=vrt)
 
-    # Full experiment:
+    # Baseline experiment:
 
-    seed_random(args.seed)
+    if args.baseline:
+        seed_random(args.seed)
 
-    model_full = AudioS4(dim=input_dim)
+        model_full = AudioS4(dim=input_dim)
 
-    train(model_full, train_loader, val_loader, args)
+        train(model_full, train_loader, val_loader, args)
 
     # Evaluation:
 
-    print(f"Model parameters: {count_parameters(model_full)}")
+    if args.baseline:
+        avg_train_loss_full = calculate_average_loss(model_full, train_loader)
+        avg_val_loss = calculate_average_loss(model_full, val_loader)
 
-    avg_train_loss_full = calculate_average_loss(model_full, train_loader)
-    avg_val_loss = calculate_average_loss(model_full, val_loader)
+        print(f"Baseline: Final training loss: {avg_train_loss_full}")
+        print(f"Baseline: Final validation loss: {avg_val_loss}")
 
-    print(f"Baseline: Final training loss: {avg_train_loss_full}")
-    print(f"Baseline: Final validation loss: {avg_val_loss}")
+        print(f"Model parameters: {count_parameters(model_full)}")
 
     avg_train_loss_full = calculate_average_loss(model_reg, train_loader)
     avg_val_loss = calculate_average_loss(model_reg, val_loader)
@@ -389,6 +391,7 @@ if __name__ == "__main__":
     parser.add_argument('--warmup_epochs', type=int, default=3, help='Warmup epochs')
     parser.add_argument('--scheduler', type=str, default="CosineAnnealingWarmRestarts", help='Scheduler')
     parser.add_argument('--log_file', type=str, default="", help='Output file for experiment results')
+    parser.add_argument('--baseline', action='store_true', help='Enable baseline training')
     args = parser.parse_args()
 
     main(args)
