@@ -9,49 +9,29 @@ from models.s4 import S4Block
 
 
 ################################################################################
-# Fisher Information Matrix Regularized Training
-# "Overcoming Catastrophic Forgetting in Neural Networks" (Kirkpatrick et al, 2017)
+# Generalization-Oriented Regularization
 
-class FIMRegularizedTraining:
-    def __init__(self, model, alpha=1.0):
+class VarianceRegularizedTraining:
+    def __init__(self, model, alpha=1.0, beta=1.0):
         self.model = model
+        self.beta = beta
         self.alpha = alpha  # Regularization coefficient
-        self.original_params = {}  # To store the original parameters
-        self.fims = {}  # To store the normalized FIMs
-
-        self.store_model()
-
-    def store_model(self):
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                self.original_params[name] = param.data.clone().detach()
-                fim = param.grad ** 2
-                fim_norm = torch.norm(fim, p=1)
-                self.fims[name] = fim / fim_norm if fim_norm > 0 else fim
-
-    def accumulate_model(self, beta=0.5):
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                self.original_params[name] = param.data.clone().detach()
-
-                fim = param.grad ** 2
-                fim_norm = torch.norm(fim, p=1)
-                fim = fim / fim_norm if fim_norm > 0 else fim
-
-                # EWMA and re-normalize
-                fim = self.fims[name] * beta + fim * (1 - beta)
-                fim_norm = torch.norm(fim, p=1)
-                fim = fim / fim_norm if fim_norm > 0 else fim
-
-                self.fims[name] = fim
 
     def loss(self):
-        fim_loss = 0.0
+        total_variability_loss = 0.0
+        total_elements = 0  # To accumulate the total number of elements considered
+
         for name, param in self.model.named_parameters():
-            if name in self.fims:  # Ensure the parameter was stored and has a corresponding FIM
-                fim_contribution = self.fims[name] * (param - self.original_params[name]).pow(2)
-                fim_loss += fim_contribution.sum()
-        return self.alpha * fim_loss
+            if param.requires_grad and param.dim() > 1 and param.size(0) > 1 and param.size(1) > 1:
+                mean = torch.mean(param, dim=1, keepdim=True)
+                metric = torch.abs(param - mean) ** self.beta
+                sum = metric.sum()
+                if sum < 10.0:
+                    total_variability_loss += sum
+                    total_elements += metric.size(0) * metric.size(1)
+
+        normalized_variability_loss = self.alpha * total_variability_loss / total_elements
+        return normalized_variability_loss
 
 
 ################################################################################
@@ -204,23 +184,12 @@ def generate_audio_datasets(args):
     validation_indices = all_indices[:validation_size]
     train_indices = np.sort(all_indices[validation_size:])
 
-    # We ensure each of the indices splits are from consecutive parts.
-    # The idea is that different songs in the dataset are consecutive,
-    # so this splits the dataset into separate playlists.
-    part_size = len(train_indices) // 3
-    train_indices_1 = train_indices[:part_size]
-    train_indices_2 = train_indices[part_size:2*part_size]
-    train_indices_3 = train_indices[2*part_size:]
-
     # Create DataLoaders
     # Note: num_workers=4 and/or pin_memory=True do not improve training throughput
     train_loader_full = DataLoader(Subset(dataset, train_indices), batch_size=args.batch_size, shuffle=True)
-    train_loader_1 = DataLoader(Subset(dataset, train_indices_1), batch_size=args.batch_size, shuffle=True)
-    train_loader_2 = DataLoader(Subset(dataset, train_indices_2), batch_size=args.batch_size, shuffle=True)
-    train_loader_3 = DataLoader(Subset(dataset, train_indices_3), batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(Subset(dataset, validation_indices), batch_size=args.batch_size, shuffle=False)
 
-    return [train_loader_1, train_loader_2, train_loader_3, train_loader_full], val_loader, mfcc_feature_dim
+    return train_loader_full, val_loader, mfcc_feature_dim
 
 
 ################################################################################
@@ -275,7 +244,7 @@ def build_lr_scheduler(optimizer, scheduler_type, warmup_epochs, total_epochs, *
 
     return combined_scheduler
 
-def train(model, train_loader, val_loader, args, fimmer=None):
+def train(model, train_loader, val_loader, args, regger=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -303,8 +272,10 @@ def train(model, train_loader, val_loader, args, fimmer=None):
             optimizer.zero_grad()  # Reset gradients for each batch
             outputs = model(inputs)
             loss = criterion(outputs, targets)
-            if fimmer:
-                loss = loss + fimmer.loss()
+            if regger:
+                rloss = regger.loss()
+                print(f"Regularization loss: {rloss} loss: {loss}")
+                loss = loss + rloss
             loss.backward()
 
             if (i + 1) % args.accumulation_steps == 0:
@@ -343,15 +314,10 @@ def seed_random(seed):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def print_model_weights(model):
-    for name, param in model.named_parameters():
-        print(f"{name}:")
-        print(param.data)
-
-def log_experiment_results(args, train_loss_0, train_loss_1, train_loss_2, train_loss_full, val_loss):
+def log_experiment_results(args, train_loss, val_loss):
     file_exists = os.path.isfile(args.log_file)
     with open(args.log_file, 'a', newline='') as csvfile:
-        fieldnames = ['alpha', 'beta', 'train_loss_0', 'train_loss_1', 'train_loss_2', 'train_loss_full', 'val_loss']
+        fieldnames = ['alpha', 'beta', 'train_loss', 'val_loss']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         if not file_exists:
@@ -360,89 +326,51 @@ def log_experiment_results(args, train_loss_0, train_loss_1, train_loss_2, train
         writer.writerow({
             'alpha': args.alpha,
             'beta': args.beta,
-            'train_loss_0': train_loss_0,
-            'train_loss_1': train_loss_1,
-            'train_loss_2': train_loss_2,
-            'train_loss_full': train_loss_full,
+            'train_loss': train_loss,
             'val_loss': val_loss
         })
 
 def main(args):
     seed_random(args.seed)
 
-    train_loaders, val_loader, input_dim = generate_audio_datasets(args)
+    train_loader, val_loader, input_dim = generate_audio_datasets(args)
 
-    if args.full:
-        # Full experiment:
-
-        seed_random(args.seed)
-
-        model_full = AudioS4(dim=input_dim)
-
-        train(model_full, train_loaders[3], val_loader, args)
-
-        # Split experiment:
-
-        seed_random(args.seed)
-
-        model_split = AudioS4(dim=input_dim)
-
-        train(model_split, train_loaders[0], val_loader, args)
-        train(model_split, train_loaders[1], val_loader, args)
-        train(model_split, train_loaders[2], val_loader, args)
-
-    # Split experiment with FIM:
+    # Regularized experiment:
 
     seed_random(args.seed)
 
-    model_fim = AudioS4(dim=input_dim)
+    model_reg = AudioS4(dim=input_dim)
 
-    train(model_fim, train_loaders[0], val_loader, args, fimmer=None)
-    fimmer = FIMRegularizedTraining(model_fim, alpha=args.alpha)
-    train(model_fim, train_loaders[1], val_loader, args, fimmer)
-    fimmer.accumulate_model(beta=args.beta)
-    train(model_fim, train_loaders[2], val_loader, args, fimmer)
+    vrt = VarianceRegularizedTraining(model_reg, alpha=args.alpha, beta=args.beta)
+
+    train(model_reg, train_loader, val_loader, args, regger=vrt)
+
+    # Full experiment:
+
+    seed_random(args.seed)
+
+    model_full = AudioS4(dim=input_dim)
+
+    train(model_full, train_loader, val_loader, args)
 
     # Evaluation:
 
-    print(f"Model parameters: {count_parameters(model_fim)}")
+    print(f"Model parameters: {count_parameters(model_full)}")
 
-    if args.full:
-        avg_train_loss_0 = calculate_average_loss(model_full, train_loaders[0])
-        avg_train_loss_1 = calculate_average_loss(model_full, train_loaders[1])
-        avg_train_loss_2 = calculate_average_loss(model_full, train_loaders[2])
-        avg_train_loss_full = calculate_average_loss(model_full, train_loaders[3])
-        avg_val_loss = calculate_average_loss(model_full, val_loader)
+    avg_train_loss_full = calculate_average_loss(model_full, train_loader)
+    avg_val_loss = calculate_average_loss(model_full, val_loader)
 
-        print(f"Full Dataset: Final training loss: 0={avg_train_loss_0} 1={avg_train_loss_1} 2={avg_train_loss_2}")
-        print(f"Full Dataset: Final training loss: {avg_train_loss_full}")
-        print(f"Full Dataset: Final validation loss: {avg_val_loss}")
+    print(f"Baseline: Final training loss: {avg_train_loss_full}")
+    print(f"Baseline: Final validation loss: {avg_val_loss}")
 
-        avg_train_loss_0 = calculate_average_loss(model_split, train_loaders[0])
-        avg_train_loss_1 = calculate_average_loss(model_split, train_loaders[1])
-        avg_train_loss_2 = calculate_average_loss(model_split, train_loaders[2])
-        avg_train_loss_full = calculate_average_loss(model_split, train_loaders[3])
-        avg_val_loss = calculate_average_loss(model_split, val_loader)
+    avg_train_loss_full = calculate_average_loss(model_reg, train_loader)
+    avg_val_loss = calculate_average_loss(model_reg, val_loader)
 
-        print(f"3x Split Dataset: Final training loss: 0={avg_train_loss_0} 1={avg_train_loss_1} 2={avg_train_loss_2}")
-        print(f"3x Split Dataset: Final training loss: {avg_train_loss_full}")
-        print(f"3x Split Dataset: Final validation loss: {avg_val_loss}")
-
-    avg_train_loss_0 = calculate_average_loss(model_fim, train_loaders[0])
-    avg_train_loss_1 = calculate_average_loss(model_fim, train_loaders[1])
-    avg_train_loss_2 = calculate_average_loss(model_fim, train_loaders[2])
-    avg_train_loss_full = calculate_average_loss(model_fim, train_loaders[3])
-    avg_val_loss = calculate_average_loss(model_fim, val_loader)
-
-    print(f"FIM Dataset: Final training loss: 0={avg_train_loss_0} 1={avg_train_loss_1} 2={avg_train_loss_2}")
-    print(f"FIM Dataset: Final training loss: {avg_train_loss_full}")
-    print(f"FIM Dataset: Final validation loss: {avg_val_loss}")
-
-    if args.print_weights:
-        print_model_weights(model_fim)
+    print(f"Regularized: Final training loss: {avg_train_loss_full}")
+    print(f"Regularized: Final validation loss: {avg_val_loss}")
 
     if args.log_file:
-        log_experiment_results(args, avg_train_loss_0, avg_train_loss_1, avg_train_loss_2, avg_train_loss_full, avg_val_loss)
+        log_experiment_results(args, avg_train_loss_full, avg_val_loss)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train an RNN on audio data for next-sequence prediction')
@@ -455,10 +383,8 @@ if __name__ == "__main__":
     parser.add_argument('--dir', type=str, default="./data", help='Directory to scan for audio files')
     parser.add_argument('--compile', action='store_true', help='Enable torch.compile')
     parser.add_argument('--mgpu', action='store_true', help='Enable multi-GPU training')
-    parser.add_argument('--print_weights', action='store_true', help='Print weights at the end to check them')
-    parser.add_argument('--full', action='store_true', help='Full comparison')
-    parser.add_argument('--alpha', type=float, default=1.0, help='Weight for FIM loss term')
-    parser.add_argument('--beta', type=float, default=0.5, help='FIM EWMA decay rate')
+    parser.add_argument('--alpha', type=float, default=1.0, help='Regularization coefficient')
+    parser.add_argument('--beta', type=float, default=1.0, help='Regularization coefficient')
     parser.add_argument('--warmup_epochs', type=int, default=3, help='Warmup epochs')
     parser.add_argument('--scheduler', type=str, default="CosineAnnealingWarmRestarts", help='Scheduler')
     parser.add_argument('--log_file', type=str, default="", help='Output file for experiment results')
