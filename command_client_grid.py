@@ -58,7 +58,7 @@ def main():
         return
 
     alpha_start, alpha_end, alpha_steps = 0.0, 20.0, 24
-    beta_start, beta_end, beta_steps = 0.5, 4.0, 8
+    beta_start, beta_end, beta_steps = 1.0, 4.0, 8
 
     commands = list(generate_commands(alpha_start, alpha_end, alpha_steps, beta_start, beta_end, beta_steps))
     print("Running the following sweep:")

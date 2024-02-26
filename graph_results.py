@@ -7,11 +7,11 @@ data_file = 'combined_results.csv'
 df = pd.read_csv(data_file)
 
 # List of output metrics to plot
-metrics = ['train_loss_0', 'train_loss_1', 'train_loss_2', 'train_loss_full', 'val_loss']
+metrics = ['train_loss', 'val_loss']
 
 for metric in metrics:
     # Pivot the DataFrame to create a matrix suitable for a heatmap
-    heatmap_data = df.pivot(index='beta', columns='alpha', values=metric)
+    heatmap_data = df.pivot(index='alpha', columns='beta', values=metric)
     
     # Create the heatmap
     plt.figure(figsize=(10, 8))
