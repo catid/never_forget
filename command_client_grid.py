@@ -52,7 +52,7 @@ def generate_commands(alpha_start, alpha_end, alpha_steps, beta_start, beta_end,
             yield f"python train.py --alpha {alpha:.2f} --beta {beta:.2f} --log_file results.csv"
 
 def main():
-    servers = read_servers_from_hostfile("hostfile")
+    servers = read_servers_from_hostfile("hosts.txt")
     if not servers:
         print("No servers found in hostfile.")
         return

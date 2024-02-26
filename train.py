@@ -30,6 +30,9 @@ class VarianceRegularizedTraining:
                     total_variability_loss += sum
                     total_elements += metric.size(0) * metric.size(1)
 
+        if total_elements <= 0:
+            return 0.0
+
         normalized_variability_loss = self.alpha * total_variability_loss / total_elements
         return normalized_variability_loss
 
@@ -273,9 +276,7 @@ def train(model, train_loader, val_loader, args, regger=None):
             outputs = model(inputs)
             loss = criterion(outputs, targets)
             if regger:
-                rloss = regger.loss()
-                print(f"Regularization loss: {rloss} loss: {loss}")
-                loss = loss + rloss
+                loss = loss + regger.loss()
             loss.backward()
 
             if (i + 1) % args.accumulation_steps == 0:
